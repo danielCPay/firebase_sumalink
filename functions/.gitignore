@@ -1,0 +1,26 @@
+# Dependencias
+node_modules/
+
+# Entornos y variables locales
+.env
+.env.*.local
+*.local
+
+# Archivos de log
+*.log
+npm-debug.log*
+
+# Carpeta de producción
+dist/
+build/
+
+# Cachés
+.cache/
+.next/
+out/
+
+# Configuración del editor
+.vscode/
+
+# Archivos del sistema
+.DS_Store
