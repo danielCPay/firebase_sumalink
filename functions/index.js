@@ -115,7 +115,7 @@ exports.onAvailability = onDocumentWritten(
 
       throw new Error("⛔ No se encontraron todos los campos requeridos.");
     }
-   
+
     const requiredFields = ["date", "status", "UserID"];
     const after = await waitForFields(event.data.after.ref, requiredFields);
     const before = event.data.before.exists ? event.data.before.data() : {};
@@ -269,6 +269,76 @@ exports.onAvailability = onDocumentWritten(
         }
       );
       console.log("Actualización exitosa:", updateResponse.data);
+    }
+
+    return;
+  }
+);
+
+exports.onJobFillStatus = onDocumentUpdated(
+  "Job_Notifications/{userId}",
+  async (event) => {
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    const userRef = after?.UserID || before?.UserID;
+    const userId = typeof userRef === "string" ? userRef : userRef?.id;
+    const JobUserModule = after?.JobUserModule || before?.JobUserModule;
+
+    if (!before || !after) {
+      console.log("Faltan datos antes o después del cambio.");
+      return;
+    }
+
+    const jobFillStatusChanged = before.JobFillStatus !== after.JobFillStatus;
+
+    console.log(`Cambios detectados en Job_Notifications/${userId}`);
+    if (jobFillStatusChanged) {
+      console.log(
+        `- JobFillStatus: ${before.JobFillStatus} → ${after.JobFillStatus}`
+      );
+    }
+
+    try {
+      // Paso 1: Login para obtener el token
+      const loginResponse = await axios.post(
+        "https://dev.sumalink.net/webservice/WebserviceStandard/Users/Login",
+        new URLSearchParams({
+          userName: "info@sumalink.net",
+          password: "System@s.2025",
+        }),
+        {
+          headers: {
+            "x-api-key": "tMCY7zxrud7ju1Rr830DS968GwtGXCUX",
+            "Content-Type": "application/x-www-form-urlencoded",
+            Authorization: "Basic RGFuaWVsOlN5c3RlbUBzLjIwMjU=",
+          },
+        }
+      );     
+      const token = loginResponse.data.result.token;
+      console.log("Token recibido:", token);
+      
+      // Paso 2: Actualizar información del Job User Module en Sumalink
+      const updateResponse = await axios.put(
+        `https://dev.sumalink.net/webservice/WebserviceStandard/JobUserModule/Record/${JobUserModule}`,
+        {
+          status_job_user_module: after.JobFillStatus,
+        },
+        {
+          headers: {
+            "X-Api-Key": "tMCY7zxrud7ju1Rr830DS968GwtGXCUX",
+            "Content-Type": "application/json",
+            "X-TOKEN": token,
+            Authorization: "Basic RGFuaWVsOlN5c3RlbUBzLjIwMjU=",
+          },
+        }
+      );
+
+      console.log("Actualización exitosa:", updateResponse.data);
+    } catch (error) {
+      console.error(
+        "Error durante la llamada a la API:",
+        error.response?.data || error.message
+      );
     }
 
     return;
