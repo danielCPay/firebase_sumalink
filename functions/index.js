@@ -1,6 +1,7 @@
 const {
   onDocumentUpdated,
   onDocumentWritten,
+  onDocumentCreated,
 } = require("firebase-functions/v2/firestore");
 // const functions = require("firebase-functions/v2");
 const admin = require("firebase-admin");
@@ -313,15 +314,217 @@ exports.onJobFillStatus = onDocumentUpdated(
             Authorization: "Basic RGFuaWVsOlN5c3RlbUBzLjIwMjU=",
           },
         }
-      );     
+      );
       const token = loginResponse.data.result.token;
       console.log("Token recibido:", token);
-      
+
       // Paso 2: Actualizar información del Job User Module en Sumalink
       const updateResponse = await axios.put(
         `https://dev.sumalink.net/webservice/WebserviceStandard/JobUserModule/Record/${JobUserModule}`,
         {
           status_job_user_module: after.JobFillStatus,
+        },
+        {
+          headers: {
+            "X-Api-Key": "tMCY7zxrud7ju1Rr830DS968GwtGXCUX",
+            "Content-Type": "application/json",
+            "X-TOKEN": token,
+            Authorization: "Basic RGFuaWVsOlN5c3RlbUBzLjIwMjU=",
+          },
+        }
+      );
+
+      console.log("Actualización exitosa:", updateResponse.data);
+    } catch (error) {
+      console.error(
+        "Error durante la llamada a la API:",
+        error.response?.data || error.message
+      );
+    }
+
+    return;
+  }
+);
+
+exports.onClockInCreated = onDocumentCreated(
+  "Upcoming_Shift/{shiftId}/Shift_ClockIn/{clockId}",
+  async (event) => {
+    const shiftId = event.params.shiftId;
+    const clockId = event.params.clockId;
+
+    const data = event.data?.data();
+
+    if (!data) {
+      console.error("❌ No se encontraron datos en el documento.");
+      return;
+    }
+
+    // Función para formatear fecha al formato 'YYYY-MM-DD HH:mm:ss'
+    function formatDateForYetiforce(date) {
+      if (!date) return null;
+
+      // Opciones para la zona horaria deseada y formato con ceros a la izquierda
+      const options = {
+        timeZone: "America/Bogota", // Ajusta según tu zona horaria
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      };
+
+      // Convertimos la fecha a string en esa zona horaria
+      const dateString = date.toLocaleString("en-US", options);
+
+      // dateString tendrá un formato tipo "09/15/2025, 16:31:20"
+      // Lo procesamos para obtener "YYYY-MM-DD HH:mm:ss"
+
+      const [datePart, timePart] = dateString.split(", ");
+
+      // datePart = "09/15/2025"
+      // timePart = "16:31:20"
+
+      const [month, day, year] = datePart.split("/");
+
+      return `${year}-${month}-${day} ${timePart}`;
+    }
+
+    // Obtener campos
+    const startTime = data.startTime?.toDate?.() || null;
+    const endTime = data.endTime?.toDate?.() || null;
+    const minutesWorked = data.minutesWorked || 0;
+
+    const formattedStartTime = formatDateForYetiforce(startTime);
+    const formattedEndTime = formatDateForYetiforce(endTime);
+
+    const shiftDocRef = admin
+      .firestore()
+      .collection("Upcoming_Shift")
+      .doc(shiftId);
+    const shiftDocSnap = await shiftDocRef.get();
+
+    if (!shiftDocSnap.exists) {
+      console.error(
+        `❌ Documento padre Upcoming_Shift/${shiftId} no encontrado.`
+      );
+      return;
+    }
+
+    // Obtener campo ShiftModule del documento padre
+    const shiftModule = shiftDocSnap.data().ShiftModule;
+
+    // Logs
+    console.log("✅ shiftId:", shiftId);
+    console.log("✅ clockId:", clockId);
+    console.log("🕒 startTime:", startTime);
+    console.log("🕒 endTime:", endTime);
+    console.log("⏱️ minutesWorked:", minutesWorked);
+    console.log("📦 ShiftModule del padre:", shiftModule);
+
+    try {
+      // Paso 1: Login para obtener el token
+      const loginResponse = await axios.post(
+        "https://dev.sumalink.net/webservice/WebserviceStandard/Users/Login",
+        new URLSearchParams({
+          userName: "info@sumalink.net",
+          password: "System@s.2025",
+        }),
+        {
+          headers: {
+            "x-api-key": "tMCY7zxrud7ju1Rr830DS968GwtGXCUX",
+            "Content-Type": "application/x-www-form-urlencoded",
+            Authorization: "Basic RGFuaWVsOlN5c3RlbUBzLjIwMjU=",
+          },
+        }
+      );
+      const token = loginResponse.data.result.token;
+      console.log("Token recibido:", token);
+
+      // Paso 2: Actualizar información del Timesheet Module en Sumalink
+      const updateResponse = await axios.post(
+        `https://dev.sumalink.net/webservice/WebserviceStandard/Timesheet/Record`,
+        {
+          shift_id: shiftModule,
+          start_time: formattedStartTime,
+          end_time: formattedEndTime,
+          minutes_worked: minutesWorked,
+        },
+        {
+          headers: {
+            "X-Api-Key": "tMCY7zxrud7ju1Rr830DS968GwtGXCUX",
+            "Content-Type": "application/json",
+            "X-TOKEN": token,
+            Authorization: "Basic RGFuaWVsOlN5c3RlbUBzLjIwMjU=",
+          },
+        }
+      );
+
+      console.log("Registro exitoso:", updateResponse.data);
+    } catch (error) {
+      console.error(
+        "Error durante la llamada a la API:",
+        error.response?.data || error.message
+      );
+    }
+    return null;
+  }
+);
+
+exports.onShiftCancelOrShiftCompletedStatus = onDocumentUpdated(
+  "Upcoming_Shift/{upcomintShift_Id}",
+  async (event) => {
+    const before = event.data?.before?.data();
+    const after = event.data?.after?.data();
+    const ShiftModule = after?.ShiftModule || before?.ShiftModule;
+
+    if (!before || !after) {
+      console.log("Faltan datos antes o después del cambio.");
+      return;
+    }
+
+    const shiftCancel = before.shiftCancel !== after.shiftCancel;
+    const shiftCompleted = before.shiftCompleted !== after.shiftCompleted;
+
+    console.log(`Cambios detectados en Upcoming_Shift/${ShiftModule}`);
+    if (shiftCancel) {
+      console.log(
+        `- shiftCancel: ${before.shiftCancel} → ${after.shiftCancel}`
+      );
+    }
+
+    if (shiftCompleted) {
+      console.log(
+        `- shiftCompleted: ${before.shiftCompleted} → ${after.shiftCompleted}`
+      );
+    }
+
+    try {
+      // Paso 1: Login para obtener el token
+      const loginResponse = await axios.post(
+        "https://dev.sumalink.net/webservice/WebserviceStandard/Users/Login",
+        new URLSearchParams({
+          userName: "info@sumalink.net",
+          password: "System@s.2025",
+        }),
+        {
+          headers: {
+            "x-api-key": "tMCY7zxrud7ju1Rr830DS968GwtGXCUX",
+            "Content-Type": "application/x-www-form-urlencoded",
+            Authorization: "Basic RGFuaWVsOlN5c3RlbUBzLjIwMjU=",
+          },
+        }
+      );
+      const token = loginResponse.data.result.token;
+      console.log("Token recibido:", token);
+
+      // Paso 2: Actualizar información del Job User Module en Sumalink
+      const updateResponse = await axios.put(
+        `https://dev.sumalink.net/webservice/WebserviceStandard/ShiftModule/Record/${ShiftModule}`,
+        {
+          cancel: after.shiftCancel,
+          completed: after.shiftCompleted,
         },
         {
           headers: {
